@@ -113,16 +113,60 @@ def parse_csv(uploaded_file):
         return None, str(e)
 
 # ─────────────────────────────────────────────
-# SHARED EDIT FORM (used by viewer page)
+# PASSWORD HELPERS
+# ─────────────────────────────────────────────
+DEFAULT_PASSWORD = "RFID123"
+
+def get_password():
+    return os.environ.get("RFID_PASSWORD",
+           st.session_state.get("app_password", DEFAULT_PASSWORD))
+
+def check_viewer_auth(bin_id):
+    return st.session_state.get(f"auth_ok_{bin_id}", False)
+
+def show_password_gate(bin_id):
+    st.markdown("""
+    <div style="background:#0f1a2e;border:1.5px solid #2a4a7a;border-radius:14px;
+        padding:1.5rem 1.5rem 1.2rem;margin-top:0.5rem;">
+      <div style="font-size:1rem;font-weight:700;color:#4f9cf9;margin-bottom:0.4rem;">
+          🔒 Warehouse Authentication</div>
+      <div style="font-size:0.88rem;color:#7a8299;margin-bottom:1rem;">
+          Enter the warehouse password to edit or clear this bin.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    pw = st.text_input("Password", type="password",
+                        placeholder="Enter password…",
+                        key=f"pw_input_{bin_id}",
+                        label_visibility="collapsed")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔓 Unlock", use_container_width=True,
+                     type="primary", key=f"pw_submit_{bin_id}"):
+            if pw == get_password():
+                st.session_state[f"auth_ok_{bin_id}"] = True
+                st.success("✅ Authenticated!")
+                st.rerun()
+            else:
+                st.error("❌ Incorrect password. Please try again.")
+    with col2:
+        if st.button("✕ Cancel", use_container_width=True,
+                     key=f"pw_cancel_{bin_id}"):
+            st.session_state.pop(f"v_mode_{bin_id}", None)
+            st.rerun()
+
+# ─────────────────────────────────────────────
+# SHARED EDIT FORM
 # ─────────────────────────────────────────────
 def _show_edit_form(bin_id, rec, data, is_empty=False):
+    title = "Register Material" if is_empty else "Edit Material"
     st.markdown(f"""
-    <div style="background:#0f2240;border:1px solid #2a4a7a;border-radius:10px;
-        padding:1rem 1.25rem;margin-bottom:1rem;">
-      <div style="font-size:1rem;font-weight:700;color:#4f9cf9;">
-          ✎  {'Register Material' if is_empty else 'Edit Material'} — Bin {bin_id}</div>
-      <div style="font-size:0.85rem;color:#7a8299;margin-top:4px;">
-          Select from known values or choose "type custom value" to enter new data.</div>
+    <div class="edit-header">
+      <div class="edit-header-title">✎  {title} — Bin {bin_id}</div>
+      <div class="edit-header-sub">
+          Select from known values or choose "type custom value" to enter new data.
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -134,8 +178,10 @@ def _show_edit_form(bin_id, rec, data, is_empty=False):
                 options = get_field_options(data, field)
                 CUSTOM = "— type custom value —"
                 choices = options + [CUSTOM]
-                default_idx = options.index(current_val) if current_val in options else len(choices) - 1
-                selected = st.selectbox(field, options=choices, index=default_idx,
+                default_idx = (options.index(current_val)
+                               if current_val in options else len(choices) - 1)
+                selected = st.selectbox(field, options=choices,
+                                        index=default_idx,
                                         key=f"vf_sel_{bin_id}_{field}")
                 if selected == CUSTOM:
                     new_vals[field] = st.text_input(
@@ -147,7 +193,8 @@ def _show_edit_form(bin_id, rec, data, is_empty=False):
                     new_vals[field] = selected
             else:
                 new_vals[field] = st.text_input(
-                    field, value=current_val, key=f"vf_inp_{bin_id}_{field}")
+                    field, value=current_val,
+                    key=f"vf_inp_{bin_id}_{field}")
 
         st.markdown("---")
         confirmed = st.checkbox(
@@ -167,14 +214,16 @@ def _show_edit_form(bin_id, rec, data, is_empty=False):
             data[bin_id] = new_vals
             save_data(data)
             st.session_state.pop(f"v_mode_{bin_id}", None)
+            st.session_state.pop(f"auth_ok_{bin_id}", None)
             st.success(f"✅ Bin {bin_id} saved successfully!")
             st.rerun()
         if cancelled:
             st.session_state.pop(f"v_mode_{bin_id}", None)
+            st.session_state.pop(f"auth_ok_{bin_id}", None)
             st.rerun()
 
 # ─────────────────────────────────────────────
-# VIEWER MODE — shown when ?bin=XXXXX in URL
+# VIEWER MODE — triggered by ?bin=XXXXX
 # ─────────────────────────────────────────────
 def show_viewer(bin_id):
     data = load_data()
@@ -182,116 +231,148 @@ def show_viewer(bin_id):
     st.markdown("""
     <style>
     #MainMenu, footer, header {visibility: hidden;}
-    .block-container {padding-top: 0 !important; padding-bottom: 2rem;}
-    .stButton > button {font-size: 1rem !important; padding: 0.6rem 1rem !important;}
+    .block-container {padding-top: 0 !important; padding-bottom: 2rem; max-width: 680px;}
+    .stButton > button {font-size: 1.05rem !important; padding: 0.65rem 1rem !important; border-radius: 10px !important;}
     div[data-testid="stForm"] {border: none; padding: 0;}
+
+    .mat-id-box {
+        background: linear-gradient(135deg,#0f2a52,#1a1040);
+        border: 1px solid #3a5a9a; border-radius: 14px;
+        padding: 1.2rem 1.4rem; margin-bottom: 1rem;
+    }
+    .mat-id-label {
+        font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 2px; color: #7a8299; margin-bottom: 6px;
+    }
+    .mat-id-value {
+        font-family: monospace; font-size: 2.1rem; font-weight: 800;
+        color: #4f9cf9; letter-spacing: 2px; line-height: 1.1; word-break: break-all;
+    }
+    .mat-name-value {
+        font-size: 1.2rem; font-weight: 600; color: #e8ecf4;
+        margin-top: 8px; line-height: 1.4;
+    }
+    .detail-card {
+        background: #13162a; border: 1px solid #2e3347;
+        border-radius: 14px; overflow: hidden; margin-bottom: 1rem;
+    }
+    .detail-card-header {
+        background: #1a1d35; padding: 0.6rem 1.1rem;
+        border-bottom: 1px solid #2e3347;
+        font-size: 0.7rem; text-transform: uppercase;
+        letter-spacing: 2px; color: #5a6280; font-weight: 600;
+    }
+    .detail-row {
+        display: flex; align-items: center;
+        padding: 0.75rem 1.1rem; border-bottom: 1px solid #1e2336; gap: 0.8rem;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-icon { font-size: 1.25rem; width: 30px; text-align: center; flex-shrink: 0; }
+    .detail-label {
+        font-size: 0.7rem; text-transform: uppercase;
+        letter-spacing: 1px; color: #5a6280; margin-bottom: 3px;
+    }
+    .detail-value { font-size: 1.05rem; font-weight: 600; color: #e8ecf4; word-break: break-word; }
+    .detail-value-hi { font-size: 1.15rem; font-weight: 700; color: #34d399; word-break: break-word; }
+    .confirm-box {
+        background: #2a1010; border: 2px solid #f87171;
+        border-radius: 12px; padding: 1.2rem 1.4rem; margin-top: 0.8rem;
+    }
+    .confirm-title { font-size: 1.1rem; font-weight: 700; color: #f87171; margin-bottom: 0.5rem; }
+    .confirm-body { color: #e8ecf4; font-size: 1rem; line-height: 1.7; }
+    .empty-box {
+        background: #1a1d27; border: 2px solid #fbbf24;
+        border-radius: 12px; padding: 2rem; text-align: center; margin-bottom: 1.5rem;
+    }
+    .empty-title { font-size: 1.3rem; font-weight: 700; color: #fbbf24; }
+    .empty-sub { color: #7a8299; margin-top: 0.5rem; font-size: 0.95rem; }
+    .edit-header {
+        background: #0f2240; border: 1px solid #2a4a7a;
+        border-radius: 10px; padding: 0.9rem 1.2rem; margin-bottom: 1rem;
+    }
+    .edit-header-title { font-size: 1rem; font-weight: 700; color: #4f9cf9; }
+    .edit-header-sub { font-size: 0.82rem; color: #7a8299; margin-top: 4px; }
     </style>
     """, unsafe_allow_html=True)
 
-    # Header bar
+    # Top header
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#0a1628,#15103a);
-        padding:1.4rem 1.5rem 1.2rem;margin-bottom:1.2rem;
+        padding:1.3rem 1.5rem 1.1rem;margin-bottom:1rem;
         border-bottom:3px solid #4f9cf9;">
-      <div style="font-family:monospace;color:#4f9cf9;font-size:0.8rem;
-          letter-spacing:3px;margin-bottom:6px;">📦 RFID · QR SYSTEM</div>
-      <div style="font-size:0.85rem;color:#7a8299;letter-spacing:1px;">STORAGE BIN</div>
-      <div style="font-size:2.8rem;font-weight:800;color:#ffffff;
+      <div style="font-family:monospace;color:#4f9cf9;font-size:0.78rem;
+          letter-spacing:3px;margin-bottom:5px;">📦 RFID · QR SYSTEM</div>
+      <div style="font-size:0.8rem;color:#7a8299;letter-spacing:1px;
+          text-transform:uppercase;">Storage Bin</div>
+      <div style="font-size:2.6rem;font-weight:800;color:#ffffff;
           letter-spacing:2px;line-height:1.1;margin-top:2px;">{bin_id}</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Bin not found
     if bin_id not in data:
-        st.markdown("""
-        <div style="background:#1a1d27;border:2px solid #f87171;border-radius:12px;
-            padding:2rem;text-align:center;margin-top:1rem;">
-          <div style="font-size:3rem;margin-bottom:0.5rem;">❌</div>
-          <div style="font-size:1.2rem;font-weight:700;color:#f87171;">Bin Not Registered</div>
-          <div style="color:#7a8299;margin-top:0.5rem;font-size:0.95rem;">
-              Contact your warehouse administrator.</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.error("❌ Bin not registered. Contact your warehouse administrator.")
         return
 
     rec = data[bin_id]
 
-    # Cleared / empty bin
+    # Empty / cleared bin
     if rec.get("_cleared"):
         st.markdown(f"""
-        <div style="background:#1a1d27;border:2px solid #fbbf24;border-radius:12px;
-            padding:2rem;text-align:center;margin-bottom:1.5rem;">
+        <div class="empty-box">
           <div style="font-size:3rem;margin-bottom:0.5rem;">📭</div>
-          <div style="font-size:1.3rem;font-weight:700;color:#fbbf24;">Bin is Empty</div>
-          <div style="color:#7a8299;margin-top:0.5rem;font-size:0.9rem;">
-              No material registered · Cleared: {rec.get("_cleared_at","unknown")}</div>
+          <div class="empty-title">Bin is Empty</div>
+          <div class="empty-sub">No material registered<br>
+              Cleared: {rec.get("_cleared_at","unknown")}</div>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("### Register new material into this bin")
-        _show_edit_form(bin_id, rec, data, is_empty=True)
+        st.markdown("### Register new material")
+        if not check_viewer_auth(bin_id):
+            show_password_gate(bin_id)
+        else:
+            _show_edit_form(bin_id, rec, data, is_empty=True)
         return
 
     # Material hero card
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#0f2a52,#1a1040);
-        border:1px solid #3a5a9a;border-radius:14px;
-        padding:1.4rem 1.5rem;margin-bottom:1.2rem;">
-      <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:2px;
-          color:#7a8299;margin-bottom:6px;">Material ID</div>
-      <div style="font-family:monospace;font-size:2rem;font-weight:800;
-          color:#4f9cf9;letter-spacing:2px;line-height:1.1;">
-          {rec.get("Material","—")}</div>
-      <div style="font-size:1.25rem;font-weight:600;color:#e8ecf4;
-          margin-top:8px;line-height:1.3;">
-          {rec.get("Material Description","—")}</div>
+    <div class="mat-id-box">
+      <div class="mat-id-label">Material ID</div>
+      <div class="mat-id-value">{rec.get("Material","—")}</div>
+      <div class="mat-name-value">{rec.get("Material Description","—")}</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Info table
-    def info_row(icon, label, value, highlight=False):
-        val_color = "#34d399" if highlight else "#e8ecf4"
-        val_size  = "1.15rem" if highlight else "1rem"
-        return f"""
-        <div style="display:flex;align-items:center;padding:0.85rem 1rem;
-            border-bottom:1px solid #1e2336;gap:0.75rem;">
-          <div style="font-size:1.3rem;width:32px;text-align:center;flex-shrink:0;">{icon}</div>
+    # Detail rows
+    st.markdown('<div class="detail-card"><div class="detail-card-header">Material Details</div>', unsafe_allow_html=True)
+
+    rows = [
+        ("🏭", "Plant",            rec.get("Plant",""),            False),
+        ("📍", "Storage Location", rec.get("Storage Location",""), False),
+        ("🗂",  "Storage Type",     rec.get("Storage Type",""),     False),
+        ("📂", "Storage Section",  rec.get("Storage Section",""),  False),
+        ("📦", "Storage Bin",      rec.get("Storage Bin",""),      False),
+        ("🏷",  "Batch",            rec.get("Batch",""),            False),
+        ("📋", "Stock Category",   rec.get("Stock Category",""),   False),
+        ("📊", "Total Stock",
+            f"{rec.get('Total Stock','')} {rec.get('Base Unit of Measure','')}".strip(), True),
+        ("📅", "SLED / BBD",       rec.get("SLED/BBD",""),         False),
+        ("📅", "GR Date",          rec.get("GR Date",""),          False),
+    ]
+
+    for icon, label, value, highlight in rows:
+        val_css = "detail-value-hi" if highlight else "detail-value"
+        st.markdown(f"""<div class="detail-row">
+          <div class="detail-icon">{icon}</div>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;
-                color:#5a6280;margin-bottom:2px;">{label}</div>
-            <div style="font-size:{val_size};font-weight:600;color:{val_color};
-                word-break:break-word;">{value or "—"}</div>
+            <div class="detail-label">{label}</div>
+            <div class="{val_css}">{value or "—"}</div>
           </div>
-        </div>"""
+        </div>""", unsafe_allow_html=True)
 
-    stock_val = f"{rec.get('Total Stock','')} {rec.get('Base Unit of Measure','')}".strip()
-
-    rows_html = "".join([
-        info_row("🏭", "Plant",            rec.get("Plant","")),
-        info_row("📍", "Storage Location", rec.get("Storage Location","")),
-        info_row("🗂", "Storage Type",     rec.get("Storage Type","")),
-        info_row("📂", "Storage Section",  rec.get("Storage Section","")),
-        info_row("📦", "Storage Bin",      rec.get("Storage Bin","")),
-        info_row("🏷", "Batch",            rec.get("Batch","")),
-        info_row("📋", "Stock Category",   rec.get("Stock Category","")),
-        info_row("📊", "Total Stock",      stock_val, highlight=True),
-        info_row("📅", "SLED / BBD",       rec.get("SLED/BBD","")),
-        info_row("📅", "GR Date",          rec.get("GR Date","")),
-    ])
-
-    st.markdown(f"""
-    <div style="background:#13162a;border:1px solid #2e3347;border-radius:14px;
-        overflow:hidden;margin-bottom:1.2rem;">
-      <div style="background:#1a1d35;padding:0.75rem 1rem;border-bottom:1px solid #2e3347;">
-        <span style="font-size:0.72rem;text-transform:uppercase;letter-spacing:2px;
-            color:#5a6280;font-weight:600;">Material Details</span>
-      </div>
-      {rows_html}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.caption(f"🕐 Last updated: {rec.get('_updated_at','unknown')}  ·  Scan again to refresh")
 
-    # Action buttons
+    # Warehouse action buttons
     st.markdown("---")
     st.markdown("#### Warehouse Actions")
     col1, col2 = st.columns(2)
@@ -299,34 +380,41 @@ def show_viewer(bin_id):
         if st.button("✎  Edit Material", use_container_width=True, type="primary",
                      key=f"v_edit_{bin_id}"):
             st.session_state[f"v_mode_{bin_id}"] = "edit"
+            st.session_state.pop(f"auth_ok_{bin_id}", None)
             st.rerun()
     with col2:
         if st.button("🗑  Clear Bin", use_container_width=True,
                      key=f"v_clear_btn_{bin_id}"):
             st.session_state[f"v_mode_{bin_id}"] = "confirm_clear"
+            st.session_state.pop(f"auth_ok_{bin_id}", None)
             st.rerun()
 
     mode = st.session_state.get(f"v_mode_{bin_id}", "")
 
-    # Confirm clear dialog
+    # Password gate — required before edit or clear
+    if mode in ("edit", "confirm_clear"):
+        if not check_viewer_auth(bin_id):
+            st.markdown("---")
+            show_password_gate(bin_id)
+            return
+
+    # Confirm clear (after auth)
     if mode == "confirm_clear":
         st.markdown(f"""
-        <div style="background:#2a1010;border:2px solid #f87171;border-radius:12px;
-            padding:1.25rem 1.5rem;margin-top:1rem;">
-          <div style="font-size:1.1rem;font-weight:700;color:#f87171;margin-bottom:0.5rem;">
-              ⚠️  Confirm Clear Bin</div>
-          <div style="color:#e8ecf4;font-size:0.95rem;line-height:1.6;">
-              This will remove all material data from bin <strong>{bin_id}</strong>.<br>
-              The QR code will remain unchanged.<br><br>
-              <strong>Are you sure?</strong>
+        <div class="confirm-box">
+          <div class="confirm-title">⚠️  Confirm Clear Bin</div>
+          <div class="confirm-body">
+            This will remove all material data from bin <strong>{bin_id}</strong>.<br>
+            The QR code will remain unchanged.<br><br>
+            <strong>Are you sure?</strong>
           </div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(" ")
         cc1, cc2 = st.columns(2)
         with cc1:
-            if st.button("✅  Yes, Clear Bin", use_container_width=True, type="primary",
-                         key=f"v_confirm_clear_{bin_id}"):
+            if st.button("✅  Yes, Clear Bin", use_container_width=True,
+                         type="primary", key=f"v_confirm_clear_{bin_id}"):
                 data[bin_id] = {
                     "Storage Bin": bin_id,
                     "_cleared": True,
@@ -334,15 +422,17 @@ def show_viewer(bin_id):
                 }
                 save_data(data)
                 st.session_state.pop(f"v_mode_{bin_id}", None)
+                st.session_state.pop(f"auth_ok_{bin_id}", None)
                 st.success("✅ Bin cleared successfully.")
                 st.rerun()
         with cc2:
             if st.button("✕  Cancel", use_container_width=True,
                          key=f"v_cancel_clear_{bin_id}"):
                 st.session_state.pop(f"v_mode_{bin_id}", None)
+                st.session_state.pop(f"auth_ok_{bin_id}", None)
                 st.rerun()
 
-    # Edit form
+    # Edit form (after auth)
     if mode == "edit":
         st.markdown("---")
         _show_edit_form(bin_id, rec, data, is_empty=False)
@@ -382,12 +472,45 @@ def tab_setup():
                 st.rerun()
 
     st.markdown("---")
+    st.markdown("### 🔒 Warehouse Password")
+    current_pw = get_password()
+    st.info(f"Current password: **{'*' * len(current_pw)}** ({len(current_pw)} characters)  ·  Default: `RFID123`")
+
+    with st.expander("Change Password (optional)"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            new_pw1 = st.text_input("New Password", type="password",
+                                     key="new_pw1", placeholder="Enter new password")
+        with col_b:
+            new_pw2 = st.text_input("Confirm Password", type="password",
+                                     key="new_pw2", placeholder="Repeat new password")
+        pw_cols = st.columns(2)
+        with pw_cols[0]:
+            if st.button("💾 Save Password", type="primary", use_container_width=True):
+                if not new_pw1:
+                    st.error("Password cannot be empty.")
+                elif new_pw1 != new_pw2:
+                    st.error("Passwords do not match.")
+                elif len(new_pw1) < 4:
+                    st.error("Password must be at least 4 characters.")
+                else:
+                    st.session_state["app_password"] = new_pw1
+                    st.success("✅ Password updated for this session.")
+                    st.caption("Note: Password resets to default when the app restarts. For a permanent password, set the RFID_PASSWORD environment variable in Streamlit Cloud secrets.")
+        with pw_cols[1]:
+            if st.button("↩ Reset to RFID123", use_container_width=True):
+                st.session_state.pop("app_password", None)
+                st.success("Password reset to default: RFID123")
+                st.rerun()
+
+    st.markdown("---")
     st.markdown("### How it works")
     st.info("""
 - Material data is stored in a JSON file on the Streamlit server
 - QR codes link to this app with ?bin=STORAGE_BIN added to the URL
 - Any phone that scans the QR opens the material info page instantly
 - The QR code URL never changes — only the data behind it changes
+- Password is required to edit or clear any bin from the QR scan page
 """)
     st.markdown("---")
     st.markdown("### Database status")
@@ -537,7 +660,6 @@ def tab_manage():
 
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
-
             with c1:
                 if st.button("✎ Edit / Register", key=f"edit_{bin_id}",
                              use_container_width=True, type="primary"):
@@ -565,11 +687,7 @@ def tab_manage():
             if st.session_state.get(f"editing_{bin_id}"):
                 st.markdown("---")
                 st.markdown("#### ✎ Edit / Register material")
-                st.caption(
-                    "Dropdown fields show all known values from your data. "
-                    "Choose from the list or select **— type custom value —** "
-                    "to enter something new."
-                )
+                st.caption("Dropdown fields show all known values. Choose from list or select — type custom value — for new data.")
                 with st.form(key=f"form_{bin_id}"):
                     new_vals = {}
                     col_a, col_b = st.columns(2)
@@ -581,7 +699,8 @@ def tab_manage():
                                 options = get_field_options(data, field)
                                 CUSTOM = "— type custom value —"
                                 choices = options + [CUSTOM]
-                                default_idx = options.index(current_val) if current_val in options else len(choices) - 1
+                                default_idx = (options.index(current_val)
+                                               if current_val in options else len(choices) - 1)
                                 selected = st.selectbox(field, options=choices,
                                     index=default_idx, key=f"sel_{bin_id}_{field}")
                                 if selected == CUSTOM:
@@ -594,8 +713,8 @@ def tab_manage():
                                     new_vals[field] = selected
                             else:
                                 new_vals[field] = st.text_input(
-                                    field, value=current_val, key=f"inp_{bin_id}_{field}")
-
+                                    field, value=current_val,
+                                    key=f"inp_{bin_id}_{field}")
                     st.markdown(" ")
                     c_save, c_cancel = st.columns(2)
                     with c_save:
@@ -603,7 +722,6 @@ def tab_manage():
                             "💾 Save Changes", type="primary", use_container_width=True)
                     with c_cancel:
                         cancelled = st.form_submit_button("✕ Cancel", use_container_width=True)
-
                     if submitted:
                         new_vals["_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         data[bin_id] = new_vals
@@ -618,7 +736,6 @@ def tab_manage():
 def main():
     params = st.query_params
     bin_param = params.get("bin", None)
-
     if bin_param:
         show_viewer(bin_param)
         return
