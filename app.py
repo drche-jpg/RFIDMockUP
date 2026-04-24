@@ -277,7 +277,7 @@ def show_viewer(bin_id):
         color: #4f9cf9; letter-spacing: 2px; line-height: 1.1; word-break: break-all;
     }
     .mat-name-value {
-        font-size: 1.2rem; font-weight: 600; color: #e8ecf4;
+        font-size: 1.2rem; font-weight: 600; color: #111111;
         margin-top: 8px; line-height: 1.4;
     }
     .detail-card {
@@ -301,7 +301,7 @@ def show_viewer(bin_id):
         letter-spacing: 1px; color: #5a6280; margin-bottom: 3px;
     }
     .detail-value {
-        font-size: 1.05rem; font-weight: 600; color: #e8ecf4; word-break: break-word;
+        font-size: 1.05rem; font-weight: 600; color: #111111; word-break: break-word;
     }
     .detail-value-hi {
         font-size: 1.15rem; font-weight: 700; color: #34d399; word-break: break-word;
